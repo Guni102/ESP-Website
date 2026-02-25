@@ -130,6 +130,9 @@ LOGGING = {
         'require_not_in_script': {
             '()': 'esp.utils.log.RequireNotInScript',
         },
+        'require_csrf_failure': {
+    '()': 'esp.utils.log.RequireCSRFFailure',
+},
     },
     'handlers': {
         'file': {
@@ -169,6 +172,13 @@ LOGGING = {
             'include_html': True,
             'formatter': 'verbose',
         },
+        'mail_admins_csrf': {
+        'level': 'WARNING',
+        'filters': ['require_debug_false', 'require_not_in_script', 'require_csrf_failure'],
+        'class': 'django.utils.log.AdminEmailHandler',
+        'include_html': True,
+        'formatter': 'verbose',
+        },
         'sentry': sentry_handler,
     },
     # We don't have a root logger, because it for various reasons ends up
@@ -184,10 +194,10 @@ LOGGING = {
         # TODO(benkraft): until 1.9 we need to have the following two handlers
         # around to override django's.  In 1.9 we will be able to remove them,
         # and just override 'django'.
-        'django.security': {
-            'handlers': ['file', 'filescript', 'console', 'consolescript',
-                         'mail_admins', 'sentry'],
-            'level': 'DEBUG',
+         'django.security': {
+         'handlers': ['file', 'filescript', 'console', 'consolescript',
+                 'mail_admins', 'mail_admins_csrf', 'sentry'],
+             'level': 'DEBUG',
         },
         'django.request': {
             'handlers': ['file', 'filescript', 'console', 'consolescript',
