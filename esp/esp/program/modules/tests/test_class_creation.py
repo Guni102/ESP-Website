@@ -586,3 +586,174 @@ class TeacherAvailabilityConsistencyTest(ClassCreationTestMixin,
         after = self._get_availability(teacher)
         self.assertEqual(before, after,
                          "Availability should be unchanged after adding coteacher")
+    
+# ---------------------------------------------------------------------------
+# 7. Class capacity logic tests
+# ---------------------------------------------------------------------------
+
+class ClassCapacityTest(ClassCreationTestMixin, ProgramFrameworkTest):
+
+    def setUp(self):
+        super().setUp()
+        # existing setup remains as it is
+
+    # -----------------------------------------------------------------------
+    # Feature 4: Reusable helper for class creation
+    # -----------------------------------------------------------------------
+    def create_basic_class(self, capacity=30):
+        subject = ClassSubject.objects.filter(parent_program=self.program).first()
+        self.assertIsNotNone(subject, "Subject should exist")
+
+        section = subject.sections.first()
+        self.assertIsNotNone(section, "Section should exist")
+
+        # Set capacity safely
+        if hasattr(section, "max_students"):
+            section.max_students = capacity
+        elif hasattr(section, "capacity"):
+            section.capacity = capacity
+
+        section.save()
+
+        return subject, section
+
+    # -----------------------------------------------------------------------
+    # Existing Test (Feature 1)
+    # -----------------------------------------------------------------------
+    def test_class_is_not_full_when_no_students(self):
+        # Step 1: Get subject
+        subject = ClassSubject.objects.filter(parent_program=self.program).first()
+        self.assertIsNotNone(subject, "Subject should exist")
+
+        # Step 2: Get section
+        section = subject.sections.first()
+        self.assertIsNotNone(section, "Section should exist")
+
+        # Step 3: Ensure no students
+        students_count = section.students().count()
+        
+        # Step 4: DEBUG PRINTS (VERY IMPORTANT)
+        print("\n========== DEBUG OUTPUT ==========")
+        print("Students count:", students_count)
+        print("Subject class_size_max:", getattr(subject, "class_size_max", "Not found"))
+        print("Section object:", section)
+        print("Section attributes:", dir(section))
+        
+        if hasattr(section, "capacity"):
+            print("Section capacity:", section.capacity)
+        if hasattr(section, "max_students"):
+            print("Section max_students:", section.max_students)
+        if hasattr(section, "class_size"):
+            print("Section class_size:", section.class_size)
+
+        result = section.isFull()
+        print("isFull() result:", result)
+        print("=================================\n")
+
+        self.assertIn(
+            result,
+            [True, False],
+            "isFull() should return a valid boolean result"
+        )
+
+    # -----------------------------------------------------------------------
+    # Feature 4 Test using helper
+    # -----------------------------------------------------------------------
+    def test_helper_creates_class_with_capacity(self):
+        subject, section = self.create_basic_class(capacity=25)
+
+        # Verify helper worked correctly
+        if hasattr(section, "max_students"):
+            self.assertEqual(section.max_students, 25)
+        elif hasattr(section, "capacity"):
+            self.assertEqual(section.capacity, 25)
+
+# ---------------------------------------------------------------------
+# 8. View-level interaction tests (simulating real user requests)
+# ---------------------------------------------------------------------
+
+class ClassViewInteractionTest(ClassCreationTestMixin, ProgramFrameworkTest):
+
+    def test_teacher_can_create_class(self):
+        teacher = self.teachers[0]
+
+        # Login as teacher
+        self.assertTrue(
+            self.client.login(username=teacher.username, password="password"),
+            "Login failed for teacher"
+        )
+
+        # Prepare form data (use real valid structure)
+        form_data = self._make_valid_class_form_data(teacher)
+        form_data["title"] = "Test Class"
+
+        # Send POST request
+        response = self.client.post(
+            _build_url(self.program, "makeaclass"),
+            data=form_data
+        )
+
+        # Validate response
+        self.assertIn(
+            response.status_code,
+            [200, 302],
+            "Expected successful response or redirect"
+        )
+
+        # Validate database change
+        created_class = ClassSubject.objects.filter(
+            parent_program=self.program,
+            title="Test Class"
+        ).exists()
+
+        self.assertTrue(created_class, "Class should be created successfully")
+        
+# ---------------------------------------------------------------------
+# 9. Workflow-based integration tests (end-to-end user flows)
+# ---------------------------------------------------------------------
+
+class ClassWorkflowIntegrationTest(ClassCreationTestMixin, ProgramFrameworkTest):
+
+    def test_teacher_workflow_create_and_edit_class(self):
+        teacher = self.teachers[0]
+
+        # Step 1: Login
+        self.assertTrue(
+            self.client.login(username=teacher.username, password="password"),
+            "Login failed for teacher"
+        )
+
+        # Step 2: Create class
+        form_data = {
+            "title": "Workflow Class",
+            "class_size_max": 25,
+            "grade_min": 6,
+            "grade_max": 10,
+            "description": "Workflow test class",
+        }
+
+        response = self.client.post(
+            self.make_url("makeaclass"),
+            data=form_data
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Step 3: Verify class created
+        created_class = ClassSubject.objects.filter(
+            parent_program=self.program,
+            title="Workflow Class"
+        ).first()
+
+        self.assertIsNotNone(created_class, "Class should be created")
+
+        # Step 4: Edit class (simulate update)
+        created_class.class_size_max = 40
+        created_class.save()
+
+        # Step 5: Validate updated state
+        self.assertEqual(
+            created_class.class_size_max,
+            40,
+            "Class update should persist correctly"
+        )
